@@ -1,0 +1,346 @@
+import tkinter as tk
+import random
+
+
+class AbyssGame:
+
+    def __init__(self, root):
+        self.root = root
+        self.root.title("33,550,336 : 13인의 심연")
+        self.root.geometry("760x620")
+        self.root.configure(bg="#0d0d12")
+        self.root.resizable(False, False)
+
+        # 13명의 보스 데이터 (1~12: 소중한 인연, 13: 13배 강한 자신의 환영)
+        self.bosses = [
+            {
+                "name": "1. 첫 번째 인연: 어린 시절의 소꿉친구",
+                "desc": "우린 영원히 함께할 줄 알았어...",
+                "hp": 800,
+                "atk": 50000,
+            },
+            {
+                "name": "2. 두 번째 인연: 길을 열어준 스승",
+                "desc": "내가 가르친 검술로 나를 베려 하는가.",
+                "hp": 1200,
+                "atk": 80000,
+            },
+            {
+                "name": "3. 세 번째 인연: 등을 맡겼던 전우",
+                "desc": "네가 세계를 구할 수 있다면 기꺼이 죽어주마.",
+                "hp": 1700,
+                "atk": 120000,
+            },
+            {
+                "name": "4. 네 번째 인연: 다정한 누이",
+                "desc": "돌아올 곳이 사라져도 괜찮겠니?",
+                "hp": 2300,
+                "atk": 160000,
+            },
+            {
+                "name": "5. 다섯 번째 인연: 엄격했던 아버지",
+                "desc": "망설이지 마라. 네 선택의 무게를 견뎌라.",
+                "hp": 3000,
+                "atk": 220000,
+            },
+            {
+                "name": "6. 여섯 번째 인연: 따스했던 어머니",
+                "desc": "아프지 말거라... 내 아이야...",
+                "hp": 3800,
+                "atk": 280000,
+            },
+            {
+                "name": "7. 일곱 번째 인연: 생명을 구해준 은인",
+                "desc": "네 목숨은 세계를 위해 쓰이겠구나.",
+                "hp": 4700,
+                "atk": 350000,
+            },
+            {
+                "name": "8. 여덟 번째 인연: 서로를 믿었던 동료",
+                "desc": "우리의 추억까지 베어내진 못할 거다.",
+                "hp": 5800,
+                "atk": 420000,
+            },
+            {
+                "name": "9. 아홉 번째 인연: 미래를 약속한 벗",
+                "desc": "다음 생이 있다면, 평범하게 만나자.",
+                "hp": 7000,
+                "atk": 500000,
+            },
+            {
+                "name": "10. 열 번째 인연: 영혼의 반쪽이었던 연인",
+                "desc": "당신을 원망하지 않아요. 사랑했어요.",
+                "hp": 8500,
+                "atk": 600000,
+            },
+            {
+                "name": "11. 열한 번째 인연: 마지막까지 남은 수호자",
+                "desc": "이제 네 곁엔 아무도 남지 않았다.",
+                "hp": 10000,
+                "atk": 750000,
+            },
+            {
+                "name": "12. 열두 번째 인연: 삶의 이유였던 존재",
+                "desc": "나를 죽이고, 너는 무엇으로 살아갈 텐가...",
+                "hp": 12000,
+                "atk": 900000,
+            },
+            {
+                "name": "13. 최종 보스: 심연의 자아 (자신의 환영)",
+                "desc": "나는 너이며, 너보다 13배 강한 절망이다!",
+                "hp": 156000,
+                "atk": 1500000,
+            },
+        ]
+
+        # 게임 상태 변수 초기화
+        self.life = 33550336.0
+        self.base_drain = 12.0
+        self.current_drain = 12.0
+        self.accel_rate = 1.6
+        self.mode_name = "보통"
+        self.current_boss_idx = 0
+        self.boss_current_hp = 0
+        self.boss_max_hp = 0
+        self.player_power = 150
+        self.is_game_over = False
+        self.tick_count = 0
+
+        self.show_start_screen()
+
+    def clear_window(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+    # 1. 시작 및 난이도 선택 화면
+    def show_start_screen(self):
+        self.clear_window()
+
+        frame = tk.Frame(self.root, bg="#16161f", bd=2, relief="groove")
+        frame.place(relx=0.5, rely=0.5, anchor="center", width=680, height=450)
+
+        tk.Label(
+            frame,
+            text="33,550,336 : 13인의 심연",
+            font=("맑은 고딕", 24, "bold"),
+            fg="#ff4d4d",
+            bg="#16161f",
+        ).pack(pady=(50, 10))
+        tk.Label(
+            frame,
+            text=(
+                "세계를 구하기 위해 소중한 12명의 인연과,\n13배 강한 자신의"
+                " 환영을 쓰러뜨려라."
+            ),
+            font=("맑은 고딕", 12),
+            fg="#aaaaaa",
+            bg="#16161f",
+        ).pack(pady=(0, 40))
+
+        tk.Label(
+            frame,
+            text="게임 모드(난이도)를 선택하십시오",
+            font=("맑은 고딕", 13, "bold"),
+            fg="#ffffff",
+            bg="#16161f",
+        ).pack(pady=(0, 20))
+
+        btn_frame = tk.Frame(frame, bg="#16161f")
+        btn_frame.pack()
+
+        modes = [
+            ("일반", 6, 1.3, "#2e7d32"),
+            ("보통", 12, 1.6, "#1565c0"),
+            ("어려움", 24, 2.0, "#ef6c00"),
+            ("지옥", 60, 2.5, "#c62828"),
+            ("윤회", 120, 3.0, "#6a1b9a"),
+        ]
+
+        for name, drain, accel, color in modes:
+            btn = tk.Button(
+                btn_frame,
+                text=name,
+                font=("맑은 고딕", 12, "bold"),
+                bg=color,
+                fg="white",
+                width=8,
+                height=2,
+                bd=0,
+                cursor="hand2",
+                command=lambda n=name, d=drain, a=accel: self.start_game(
+                    n, d, a
+                ),
+            )
+            btn.pack(side="left", padx=6)
+
+    # 2. 메인 게임 시작
+    def start_game(self, mode_name, initial_drain, accel_rate):
+        self.clear_window()
+
+        self.mode_name = mode_name
+        self.base_drain = float(initial_drain)
+        self.current_drain = float(initial_drain)
+        self.accel_rate = accel_rate
+        self.life = 33550336.0
+        self.current_boss_idx = 0
+        self.player_power = 150
+        self.is_game_over = False
+        self.tick_count = 0
+
+        # 상단 HUD (라이프, 감소 속도, 공격력)
+        hud_frame = tk.Frame(self.root, bg="#0b0b10", bd=1, relief="solid")
+        hud_frame.pack(fill="x", padx=25, pady=(20, 15))
+
+        self.lbl_life = tk.Label(
+            hud_frame,
+            text="라이프: 33,550,336",
+            font=("Consolas", 16, "bold"),
+            fg="#ff5252",
+            bg="#0b0b10",
+        )
+        self.lbl_life.pack(side="left", padx=15, pady=12)
+
+        self.lbl_drain = tk.Label(
+            hud_frame,
+            text=f"감소: -{int(self.current_drain)}/초",
+            font=("맑은 고딕", 12, "bold"),
+            fg="#ffb74d",
+            bg="#0b0b10",
+        )
+        self.lbl_drain.pack(side="left", padx=15)
+
+        self.lbl_power = tk.Label(
+            hud_frame,
+            text=f"[{self.mode_name}] 공격력: {self.player_power}",
+            font=("맑은 고딕", 12, "bold"),
+            fg="#4dd0e1",
+            bg="#0b0b10",
+        )
+        self.lbl_power.pack(side="right", padx=15)
+
+        # 중앙 보스 영역
+        boss_frame = tk.Frame(self.root, bg="#1f1f2e", bd=1, relief="solid")
+        boss_frame.pack(fill="x", padx=25, pady=10, ipady=15)
+
+        self.lbl_stage = tk.Label(
+            boss_frame,
+            text="STAGE 1 / 13",
+            font=("맑은 고딕", 11, "bold"),
+            fg="#aaaaaa",
+            bg="#1f1f2e",
+        )
+        self.lbl_stage.pack(pady=(10, 5))
+
+        self.lbl_boss_name = tk.Label(
+            boss_frame,
+            text="",
+            font=("맑은 고딕", 18, "bold"),
+            fg="#ffd54f",
+            bg="#1f1f2e",
+        )
+        self.lbl_boss_name.pack(pady=5)
+
+        self.lbl_boss_desc = tk.Label(
+            boss_frame,
+            text="",
+            font=("맑은 고딕", 11, "italic"),
+            fg="#cccccc",
+            bg="#1f1f2e",
+        )
+        self.lbl_boss_desc.pack(pady=(0, 15))
+
+        # 보스 체력바 (Canvas)
+        self.hp_canvas = tk.Canvas(
+            boss_frame,
+            width=640,
+            height=24,
+            bg="#111111",
+            highlightthickness=1,
+            highlightbackground="#444444",
+        )
+        self.hp_canvas.pack()
+        self.hp_rect = self.hp_canvas.create_rectangle(
+            0, 0, 640, 24, fill="#e53935", width=0
+        )
+
+        self.lbl_boss_hp = tk.Label(
+            boss_frame,
+            text="",
+            font=("Consolas", 11),
+            fg="#ffffff",
+            bg="#1f1f2e",
+        )
+        self.lbl_boss_hp.pack(pady=(5, 0))
+
+        # 행동 버튼 영역
+        btn_frame = tk.Frame(self.root, bg="#0d0d12")
+        btn_frame.pack(pady=15)
+
+        self.btn_attack = tk.Button(
+            btn_frame,
+            text="⚔️ 검으로 베기 (공격)",
+            font=("맑은 고딕", 13, "bold"),
+            bg="#d32f2f",
+            fg="white",
+            width=20,
+            height=2,
+            bd=0,
+            cursor="hand2",
+            command=self.attack_boss,
+        )
+        self.btn_attack.pack(side="left", padx=10)
+
+        self.btn_focus = tk.Button(
+            btn_frame,
+            text="🧘 정신 집중 (공격력 강화)",
+            font=("맑은 고딕", 13, "bold"),
+            bg="#00838f",
+            fg="white",
+            width=22,
+            height=2,
+            bd=0,
+            cursor="hand2",
+            command=self.focus_mind,
+        )
+        self.btn_focus.pack(side="left", padx=10)
+
+        # 하단 전투 로그 창
+        self.log_text = tk.Text(
+            self.root,
+            height=8,
+            bg="#0a0a0e",
+            fg="#bbbbbb",
+            font=("맑은 고딕", 10),
+            state="disabled",
+            bd=1,
+            relief="solid",
+        )
+        self.log_text.pack(fill="both", expand=True, padx=25, pady=(0, 20))
+
+        self.add_log(
+            f"[{self.mode_name} 모드] 여정이 시작되었습니다. 초기 라이프:"
+            " 33,550,336"
+        )
+        self.load_boss(0)
+        self.game_loop()
+
+    def add_log(self, message):
+        self.log_text.config(state="normal")
+        self.log_text.insert("end", message + "\n")
+        self.log_text.see("end")
+        self.log_text.config(state="disabled")
+
+    def load_boss(self, idx):
+        boss = self.bosses[idx]
+        if idx == 12:
+            # 13번째 보스는 주인공 공격력의 13배에 비례하는 체력과 실력을 가짐
+            self.boss_max_hp = self.player_power * 13 * 12
+            desc = (
+                "나는 너의 모습, 그리고 너보다 13배 강한"
+                f" 힘({self.player_power * 13:,})을 가졌다!"
+            )
+        else:
+            self.boss_max_hp = boss["hp"]
+            desc = boss["desc"]
+
+

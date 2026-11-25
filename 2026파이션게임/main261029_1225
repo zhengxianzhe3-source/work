@@ -1,0 +1,261 @@
+import pygame
+import sys
+import math
+import random
+
+# 1. 게임 초기화
+pygame.init()
+pygame.font.init()
+
+# 화면 설정
+WIDTH, HEIGHT = 1000, 700
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("The 13th Path: 세계를 구하기 위한 여정")
+clock = pygame.time.Clock()
+
+# 색상 정의
+BLACK = (15, 15, 15)
+WHITE = (240, 240, 240)
+RED = (220, 50, 50)
+GOLD = (235, 180, 50)
+GRAY = (80, 80, 80)
+
+# 💡 안전한 한글 폰트 시스템 구성 (시스템에 있는 한글 폰트를 순서대로 찾음)
+FONT_NAMES = ["malgungothic", "nanumgothic", "notosanskr", "appleasdghothicneo", "gulim", "arial"]
+FONT_LARGE = pygame.font.SysFont(FONT_NAMES, 40, bold=True)
+FONT_MID = pygame.font.SysFont(FONT_NAMES, 24, bold=True)
+FONT_SMALL = pygame.font.SysFont(FONT_NAMES, 18)
+
+# 2. 난이도 및 게임 상태 설정
+DIFFICULTIES = {
+    "일반": {"life_drain_multiplier": 1.0, "boss_hp_multiplier": 1.0, "boss_speed_multiplier": 1.0},
+    "보통": {"life_drain_multiplier": 1.5, "boss_hp_multiplier": 2.0, "boss_speed_multiplier": 1.4},
+    "어려움": {"life_drain_multiplier": 2.5, "boss_hp_multiplier": 4.0, "boss_speed_multiplier": 1.9},
+    "지옥": {"life_drain_multiplier": 5.0, "boss_hp_multiplier": 8.0, "boss_speed_multiplier": 2.5},
+    "윤회": {"life_drain_multiplier": 10.0, "boss_hp_multiplier": 15.0, "boss_speed_multiplier": 3.5}
+}
+
+class GameState:
+    def __init__(self):
+        self.mode = "MENU"  # MENU, PLAYING, GAME_OVER, VICTORY
+        self.selected_difficulty = "일반"
+        
+        # 라이프 설정 (초기값: 33,550,336)
+        self.max_life = 33550336
+        self.current_life = float(self.max_life)
+        self.base_drain_per_second = 12.0
+        
+        # 보스 진행도 (총 13명)
+        self.current_boss_index = 1
+        self.total_bosses = 13
+        self.boss_hp = 100.0
+        self.boss_max_hp = 100.0
+        
+        # 보스 위치 및 이동 관련 변수
+        self.boss_width = 300
+        self.boss_height = 200
+        self.boss_x = float(WIDTH // 2 - self.boss_width // 2)
+        self.boss_y = 220.0
+        
+        # 💡 사방 이동을 위한 X축, Y축 속도 벡터
+        self.boss_vx = 0.0
+        self.boss_vy = 0.0
+        self.boss_base_speed = 350.0
+        
+        # 시간 추적
+        self.elapsed_seconds = 0.0
+        
+    def start_game(self, difficulty):
+        self.selected_difficulty = difficulty
+        self.mode = "PLAYING"
+        self.current_life = float(self.max_life)
+        self.current_boss_index = 1
+        self.elapsed_seconds = 0
+        self.setup_boss()
+        
+    def setup_boss(self):
+        diff_settings = DIFFICULTIES[self.selected_difficulty]
+        hp_multiplier = diff_settings["boss_hp_multiplier"]
+        
+        if self.current_boss_index == 13:
+            self.boss_max_hp = 300.0 * hp_multiplier
+        else:
+            self.boss_max_hp = (20.0 * self.current_boss_index) * hp_multiplier
+            
+        self.boss_hp = self.boss_max_hp
+        
+        # 위치 초기화 (중앙 부근)
+        self.boss_x = float(WIDTH // 2 - self.boss_width // 2)
+        self.boss_y = 220.0
+        
+        # 💡 360도 무작위 각도로 날아가도록 속도 벡터 생성
+        speed_mult = diff_settings["boss_speed_multiplier"]
+        current_speed = self.boss_base_speed * speed_mult * (1.0 + (self.current_boss_index * 0.12))
+        
+        angle = random.uniform(0, 2 * math.pi)
+        # 특정 너무 일직선인 각도 방지 조율
+        if abs(math.sin(angle)) < 0.2: 
+            angle += 0.3
+            
+        self.boss_vx = current_speed * math.cos(angle)
+        self.boss_vy = current_speed * math.sin(angle)
+
+    def update(self, dt):
+        if self.mode != "PLAYING":
+            return
+            
+        self.elapsed_seconds += dt
+        diff_settings = DIFFICULTIES[self.selected_difficulty]
+        
+        # 1. 라이프 감소 로직
+        time_acceleration = 1.0 + (self.elapsed_seconds * 0.02) 
+        difficulty_mult = diff_settings["life_drain_multiplier"]
+        drain_this_frame = self.base_drain_per_second * difficulty_mult * time_acceleration * dt
+        self.current_life -= drain_this_frame
+        
+        if self.current_life <= 0:
+            self.current_life = 0
+            self.mode = "GAME_OVER"
+            
+        # 2. 💡 보스 사방 이동 및 벽 튕기기 구현
+        self.boss_x += self.boss_vx * dt
+        self.boss_y += self.boss_vy * dt
+        
+        # 좌우 벽 충돌 판정
+        if self.boss_x <= 10:
+            self.boss_x = 10
+            self.boss_vx *= -1
+        elif self.boss_x + self.boss_width >= WIDTH - 10:
+            self.boss_x = WIDTH - 10 - self.boss_width
+            self.boss_vx *= -1
+            
+        # 상하 벽 충돌 판정 (상단 UI 구역과 하단 체력바 구역 고려)
+        if self.boss_y <= 150:
+            self.boss_y = 150
+            self.boss_vy *= -1
+        elif self.boss_y + self.boss_height >= 440:
+            self.boss_y = 440 - self.boss_height
+            self.boss_vy *= -1
+            
+    def defeat_boss(self):
+        if self.current_boss_index < self.total_bosses:
+            self.current_boss_index += 1
+            self.setup_boss()
+        else:
+            self.mode = "VICTORY"
+
+# 게임 매니저 생성
+game = GameState()
+
+# 3. 메인 게임 루프
+running = True
+last_time = pygame.time.get_ticks()
+
+while running:
+    current_time = pygame.time.get_ticks()
+    dt = (current_time - last_time) / 1000.0
+    last_time = current_time
+
+    # 이벤트 처리
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+            
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            mx, my = pygame.mouse.get_pos()
+            
+            # 메뉴 화면 상호작용
+            if game.mode == "MENU":
+                y_pos = 250
+                for diff in DIFFICULTIES.keys():
+                    rect = pygame.Rect(WIDTH//2 - 100, y_pos, 200, 40)
+                    if rect.collidepoint(mx, my):
+                        game.start_game(diff)
+                        break
+                    y_pos += 60
+                    
+            # 게임 진행 중 (움직이는 보스 타격 체크)
+            elif game.mode == "PLAYING":
+                boss_rect = pygame.Rect(int(game.boss_x), int(game.boss_y), game.boss_width, game.boss_height)
+                if boss_rect.collidepoint(mx, my):
+                    damage = 25 if game.current_boss_index != 13 else 15
+                    game.boss_hp -= damage
+                    if game.boss_hp <= 0:
+                        game.defeat_boss()
+                        
+            # 게임 오버 또는 승리 시 메뉴 이동
+            elif game.mode in ["GAME_OVER", "VICTORY"]:
+                btn_rect = pygame.Rect(WIDTH//2 - 100, HEIGHT//2 + 100, 200, 50)
+                if btn_rect.collidepoint(mx, my):
+                    game.mode = "MENU"
+
+    # 로직 업데이트
+    game.update(dt)
+
+    # 4. 화면 그리기 (렌더링)
+    screen.fill(BLACK)
+    
+    if game.mode == "MENU":
+        # 🇰🇷 한국어 타이틀 화면
+        title_text = FONT_LARGE.render("The 13th Path: 세계를 위한 희생", True, GOLD)
+        screen.blit(title_text, (WIDTH//2 - title_text.get_width()//2, 80))
+        
+        subtitle_text = FONT_SMALL.render("움직이는 보스를 마우스로 클릭하여 파괴하십시오.", True, WHITE)
+        screen.blit(subtitle_text, (WIDTH//2 - subtitle_text.get_width()//2, 150))
+        
+        y_pos = 250
+        for diff in DIFFICULTIES.keys():
+            rect = pygame.Rect(WIDTH//2 - 100, y_pos, 200, 40)
+            pygame.draw.rect(screen, GRAY, rect, border_radius=5)
+            text = FONT_MID.render(diff, True, WHITE)
+            screen.blit(text, (WIDTH//2 - text.get_width()//2, y_pos + 5))
+            y_pos += 60
+
+    elif game.mode == "PLAYING":
+        # 🇰🇷 한국어 인게임 정보
+        info_str = f"난이도: {game.selected_difficulty} | 진행 시간: {int(game.elapsed_seconds)}초"
+        info_text = FONT_SMALL.render(info_str, True, WHITE)
+        screen.blit(info_text, (20, 20))
+        
+        life_text = FONT_LARGE.render(f"라이프: {int(game.current_life):,}", True, RED)
+        screen.blit(life_text, (WIDTH//2 - life_text.get_width()//2, 50))
+        
+        time_acceleration = 1.0 + (game.elapsed_seconds * 0.02)
+        current_drain = game.base_drain_per_second * DIFFICULTIES[game.selected_difficulty]["life_drain_multiplier"] * time_acceleration
+        drain_text = FONT_SMALL.render(f"(초당 라이프 감소량: -{current_drain:.1f})", True, RED)
+        screen.blit(drain_text, (WIDTH//2 - drain_text.get_width()//2, 100))
+        
+        if game.current_boss_index == 13:
+            boss_title = "최종 보스 : 거울 속의 자신"
+            boss_color = GOLD
+        else:
+            boss_title = f"보스 {game.current_boss_index}/13 : 소중한 기억"
+            boss_color = WHITE
+            
+        boss_text = FONT_MID.render(boss_title, True, boss_color)
+        screen.blit(boss_text, (WIDTH//2 - boss_text.get_width()//2, 160))
+        
+        # 보스 그래픽 영역 (실시간 변동 좌표 적용)
+        boss_rect = pygame.Rect(int(game.boss_x), int(game.boss_y), game.boss_width, game.boss_height)
+        pygame.draw.rect(screen, boss_color, boss_rect, width=2, border_radius=10)
+        click_prompt = FONT_SMALL.render("타격!", True, GRAY)
+        screen.blit(click_prompt, (int(game.boss_x) + game.boss_width//2 - click_prompt.get_width()//2, int(game.boss_y) + game.boss_height//2 - 10))
+        
+        # 보스 체력 바 (고정 영역)
+        hp_bar_width = 400
+        hp_percentage = max(0.0, game.boss_hp / game.boss_max_hp)
+        pygame.draw.rect(screen, GRAY, (WIDTH//2 - hp_bar_width//2, 480, hp_bar_width, 20))
+        pygame.draw.rect(screen, RED, (WIDTH//2 - hp_bar_width//2, 480, int(hp_bar_width * hp_percentage), 20))
+        
+        hp_text = FONT_SMALL.render(f"보스 체력: {int(game.boss_hp)} / {int(game.boss_max_hp)}", True, WHITE)
+        screen.blit(hp_text, (WIDTH//2 - hp_text.get_width()//2, 510))
+
+    elif game.mode == "GAME_OVER":
+        # 🇰🇷 한국어 패배 화면
+        over_text = FONT_LARGE.render("임무 실패: 라이프가 모두 소멸했습니다.", True, RED)
+        screen.blit(over_text, (WIDTH//2 - over_text.get_width()//2, HEIGHT//3))
+        
+        btn_rect = pygame.Rect(WIDTH//2 - 100, HEIGHT//2 + 100, 200, 50)
+        pygame.draw.rect(screen, RED, btn_rect, border_radius=5)
+        btn_text = FONT_MID.render("메뉴로", True, WHITE)
+        screen.blit(btn_text, (WIDTH//2 - btn_text.get_width()//2, HEIGHT//2 + 110))

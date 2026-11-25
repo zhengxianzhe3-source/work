@@ -1,0 +1,281 @@
+import pygame
+import sys
+import math
+import random
+
+# 1. 游戏初始化
+pygame.init()
+pygame.font.init()
+
+# 화면 설정
+WIDTH, HEIGHT = 1000, 700
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("The 13th Path - Enhanced")
+clock = pygame.time.Clock()
+
+# 색상 정의
+BLACK = (15, 15, 15)
+WHITE = (240, 240, 240)
+RED = (220, 50, 50)
+GOLD = (235, 180, 50)
+GRAY = (80, 80, 80)
+LIGHT_GRAY = (150, 150, 150)
+
+# 안전한 기본 폰트 설정
+FONT_LARGE = pygame.font.SysFont(None, 60)
+FONT_MID = pygame.font.SysFont(None, 36)
+FONT_SMALL = pygame.font.SysFont(None, 24)
+
+# 난이도 설정
+DIFFICULTIES = {
+    "Normal": {"life_drain_multiplier": 1.0, "boss_hp_multiplier": 1.0, "boss_speed_multiplier": 1.0},
+    "Hard": {"life_drain_multiplier": 1.5, "boss_hp_multiplier": 2.0, "boss_speed_multiplier": 1.4},
+    "Very Hard": {"life_drain_multiplier": 2.5, "boss_hp_multiplier": 4.0, "boss_speed_multiplier": 1.9},
+    "Hell": {"life_drain_multiplier": 5.0, "boss_hp_multiplier": 8.0, "boss_speed_multiplier": 2.5},
+    "Loop": {"life_drain_multiplier": 10.0, "boss_hp_multiplier": 15.0, "boss_speed_multiplier": 3.5}
+}
+
+# --- 이펙트 클래스 추가 ---
+class Particle:
+    """보스를 타격했을 때 사방으로 튀는 파티클 이펙트"""
+    def __init__(self, x, y, color):
+        self.x = x
+        self.y = y
+        self.color = color
+        angle = random.uniform(0, math.pi * 2)
+        speed = random.uniform(2, 6)
+        self.vx = math.cos(angle) * speed
+        self.vy = math.sin(angle) * speed
+        self.radius = random.randint(3, 6)
+        self.lifetime = 1.0  # 투명도 감소용 수명 (초)
+
+    def update(self, dt):
+        self.x += self.vx
+        self.y += self.vy
+        self.lifetime -= dt * 3  # 빠르게 사라지도록 설정
+        if self.radius > 0.1:
+            self.radius -= dt * 2
+
+    def draw(self, surface):
+        if self.lifetime > 0 and self.radius > 0:
+            # 반투명 효과를 내기 위해 임시 서피스 생성 또는 단순 원 그리기
+            alpha = max(0, min(255, int(self.lifetime * 255)))
+            color_with_alpha = (*self.color, alpha)
+            # Pygame 구조상 쉽게 그리기 위해 기본 원으로 대체
+            pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), max(1, int(self.radius)))
+
+class FloatingText:
+    """데미지 숫자가 위로 둥둥 떠오르는 텍스트 이펙트"""
+    def __init__(self, x, y, text, color):
+        self.x = x + random.randint(-20, 20)
+        self.y = y + random.randint(-10, 10)
+        self.text = text
+        self.color = color
+        self.vy = -60  # 초당 위로 올라갈 픽셀 속도
+        self.lifetime = 0.6  # 0.6초 동안 지속
+
+    def update(self, dt):
+        self.y += self.vy * dt
+        self.lifetime -= dt
+
+    def draw(self, surface):
+        if self.lifetime > 0:
+            alpha = max(0, min(255, int((self.lifetime / 0.6) * 255)))
+            text_surf = FONT_MID.render(self.text, True, self.color)
+            # 알파 효과를 주기 위한 복사
+            text_surf.set_alpha(alpha)
+            surface.blit(text_surf, (self.x - text_surf.get_width()//2, self.y))
+
+
+class GameState:
+    def __init__(self):
+        self.mode = "MENU" 
+        self.selected_difficulty = "Normal"
+        self.max_life = 33550336
+        self.current_life = float(self.max_life)
+        self.base_drain_per_second = 12.0
+        
+        self.current_boss_index = 1
+        self.total_bosses = 13
+        self.boss_hp = 100.0
+        self.boss_max_hp = 100.0
+        
+        self.boss_width = 300
+        self.boss_height = 200
+        self.boss_x = float(WIDTH // 2 - self.boss_width // 2)
+        self.boss_y = 200
+        self.boss_direction = 1
+        self.boss_base_speed = 350.0
+        self.elapsed_seconds = 0.0
+
+        # 이펙트 컨테이너
+        self.particles = []
+        self.floating_texts = []
+
+    def start_game(self, difficulty):
+        self.selected_difficulty = difficulty
+        self.mode = "PLAYING"
+        self.current_life = float(self.max_life)
+        self.current_boss_index = 1
+        self.elapsed_seconds = 0
+        self.particles.clear()
+        self.floating_texts.clear()
+        self.setup_boss()
+
+    def setup_boss(self):
+        diff_settings = DIFFICULTIES[self.selected_difficulty]
+        hp_multiplier = diff_settings["boss_hp_multiplier"]
+        
+        if self.current_boss_index == 13:
+            self.boss_max_hp = 300.0 * hp_multiplier
+        else:
+            self.boss_max_hp = (20.0 * self.current_boss_index) * hp_multiplier
+            
+        self.boss_hp = self.boss_max_hp
+        self.boss_x = float(WIDTH // 2 - self.boss_width // 2)
+        self.boss_direction = random.choice([-1, 1])
+
+    def spawn_hit_effects(self, mx, my, damage, is_final):
+        # 1. 데미지 폰트 추가
+        color = GOLD if is_final else WHITE
+        self.floating_texts.append(FloatingText(mx, my, f"-{damage}", color))
+        # 2. 파티클 추가
+        p_color = GOLD if is_final else RED
+        for _ in range(15):
+            self.particles.append(Particle(mx, my, p_color))
+
+    def update(self, dt):
+        # 이펙트는 어떤 상태든 자연스럽게 흘러가도록 먼저 업데이트
+        for p in self.particles[:]:
+            p.update(dt)
+            if p.lifetime <= 0:
+                self.particles.remove(p)
+
+        for ft in self.floating_texts[:]:
+            ft.update(dt)
+            if ft.lifetime <= 0:
+                self.floating_texts.remove(ft)
+
+        if self.mode != "PLAYING":
+            return
+            
+        self.elapsed_seconds += dt
+        diff_settings = DIFFICULTIES[self.selected_difficulty]
+        
+        # 1. 라이프 감소 로직
+        time_acceleration = 1.0 + (self.elapsed_seconds * 0.02)
+        difficulty_mult = diff_settings["life_drain_multiplier"]
+        drain_this_frame = self.base_drain_per_second * difficulty_mult * time_acceleration * dt
+        self.current_life -= drain_this_frame
+        
+        if self.current_life <= 0:
+            self.current_life = 0
+            self.mode = "GAME_OVER"
+            
+        # 2. 보스 이동 로직
+        speed_mult = diff_settings["boss_speed_multiplier"]
+        current_speed = self.boss_base_speed * speed_mult * (1.0 + (self.current_boss_index * 0.12))
+        self.boss_x += self.boss_direction * current_speed * dt
+        
+        # 화면 좌우 벽 충돌 검사
+        if self.boss_x <= 10:
+            self.boss_x = 10
+            self.boss_direction = 1
+        elif self.boss_x + self.boss_width >= WIDTH - 10:
+            self.boss_x = WIDTH - 10 - self.boss_width
+            self.boss_direction = -1
+
+    def defeat_boss(self):
+        if self.current_boss_index < self.total_bosses:
+            self.current_boss_index += 1
+            self.setup_boss()
+        else:
+            self.mode = "VICTORY"
+
+# 게임 매니저 생성
+game = GameState()
+
+# 3. 메인 게임 루프
+running = True
+last_time = pygame.time.get_ticks()
+
+while running:
+    current_time = pygame.time.get_ticks()
+    dt = (current_time - last_time) / 1000.0
+    last_time = current_time
+    
+    # 이벤트 처리
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            mx, my = pygame.mouse.get_pos()
+            
+            # 메뉴 화면
+            if game.mode == "MENU":
+                y_pos = 250
+                for diff in DIFFICULTIES.keys():
+                    rect = pygame.Rect(WIDTH//2 - 100, y_pos, 200, 40)
+                    if rect.collidepoint(mx, my):
+                        game.start_game(diff)
+                        break
+                    y_pos += 60
+                    
+            # 게임 진행 중
+            elif game.mode == "PLAYING":
+                boss_rect = pygame.Rect(int(game.boss_x), game.boss_y, game.boss_width, game.boss_height)
+                if boss_rect.collidepoint(mx, my):
+                    is_final = (game.current_boss_index == 13)
+                    damage = 25 if not is_final else 15
+                    game.boss_hp -= damage
+                    
+                    # 이펙트 터트리기
+                    game.spawn_hit_effects(mx, my, damage, is_final)
+                    
+                    if game.boss_hp <= 0:
+                        game.defeat_boss()
+                        
+            # 게임 오버 또는 승리
+            elif game.mode in ["GAME_OVER", "VICTORY"]:
+                btn_rect = pygame.Rect(WIDTH//2 - 100, HEIGHT//2 + 100, 200, 50)
+                if btn_rect.collidepoint(mx, my):
+                    game.mode = "MENU"
+                    
+    # 로직 업데이트
+    game.update(dt)
+    
+    # 4. 화면 그리기 (렌더링)
+    screen.fill(BLACK)
+    
+    if game.mode == "MENU":
+        title_text = FONT_LARGE.render("The 13th Path", True, GOLD)
+        screen.blit(title_text, (WIDTH//2 - title_text.get_width()//2, 80))
+        subtitle_text = FONT_SMALL.render("Click the moving boss to defeat them.", True, WHITE)
+        screen.blit(subtitle_text, (WIDTH//2 - subtitle_text.get_width()//2, 150))
+        
+        y_pos = 250
+        for diff in DIFFICULTIES.keys():
+            rect = pygame.Rect(WIDTH//2 - 100, y_pos, 200, 40)
+            pygame.draw.rect(screen, GRAY, rect, border_radius=5)
+            text = FONT_MID.render(diff, True, WHITE)
+            screen.blit(text, (WIDTH//2 - text.get_width()//2, y_pos + 5))
+            y_pos += 60
+            
+    elif game.mode == "PLAYING":
+        info_str = f"Mode: {game.selected_difficulty} | Time: {int(game.elapsed_seconds)}s"
+        info_text = FONT_SMALL.render(info_str, True, WHITE)
+        screen.blit(info_text, (20, 20))
+        
+        life_text = FONT_LARGE.render(f"LIFE: {int(game.current_life):,}", True, RED)
+        screen.blit(life_text, (WIDTH//2 - life_text.get_width()//2, 50))
+        
+        time_acceleration = 1.0 + (game.elapsed_seconds * 0.02)
+        current_drain = game.base_drain_per_second * DIFFICULTIES[game.selected_difficulty]["life_drain_multiplier"] * time_acceleration
+        drain_text = FONT_SMALL.render(f"(Life Drain: -{current_drain:.1f}/s)", True, RED)
+        screen.blit(drain_text, (WIDTH//2 - drain_text.get_width()//2, 100))
+        
+        if game.current_boss_index == 13:
+            boss_title = "Final BOSS : Yourself"
+            boss_color = GOLD
+        else:
+            

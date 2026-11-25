@@ -1,0 +1,278 @@
+import pygame
+import sys
+import math
+import random
+
+# 1. 게임 초기화
+pygame.init()
+pygame.font.init()
+
+# 화면 설정
+WIDTH, HEIGHT = 1000, 700
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("The 13th Path")
+clock = pygame.time.Clock()
+
+# 색상 정의
+BLACK = (15, 15, 15)
+WHITE = (240, 240, 240)
+RED = (220, 50, 50)
+GOLD = (235, 180, 50)
+GRAY = (60, 60, 60)
+LIGHT_GRAY = (120, 120, 120)
+
+# 안전한 기본 폰트 설정
+FONT_LARGE = pygame.font.SysFont(None, 64)
+FONT_MID = pygame.font.SysFont(None, 36)
+FONT_SMALL = pygame.font.SysFont(None, 24)
+
+# 난이도 설정 (100% 생명력 기준)
+DIFFICULTIES = {
+    "Normal":    {"life_drain_multiplier": 1.0,  "boss_hp_multiplier": 1.0, "boss_speed_multiplier": 1.0},
+    "Hard":      {"life_drain_multiplier": 2.0,  "boss_hp_multiplier": 1.8, "boss_speed_multiplier": 1.3},
+    "Very Hard": {"life_drain_multiplier": 4.5,  "boss_hp_multiplier": 3.0, "boss_speed_multiplier": 1.7},
+    "Hell":      {"life_drain_multiplier": 8.0,  "boss_hp_multiplier": 5.0, "boss_speed_multiplier": 2.2},
+    "Loop":      {"life_drain_multiplier": 15.0, "boss_hp_multiplier": 9.0, "boss_speed_multiplier": 3.0}
+}
+
+class Particle:
+    """클릭 시 사방으로 튀는 타격 파티클"""
+    def __init__(self, x, y, color):
+        self.x = x
+        self.y = y
+        angle = random.uniform(0, math.pi * 2)
+        speed = random.uniform(120, 320)
+        self.vx = math.cos(angle) * speed
+        self.vy = math.sin(angle) * speed
+        self.radius = random.uniform(3, 6)
+        self.lifetime = 0.35
+        self.color = color
+
+    def update(self, dt):
+        self.x += self.vx * dt
+        self.y += self.vy * dt
+        self.lifetime -= dt
+        if self.radius > 0.1:
+            self.radius -= dt * 5
+
+    def draw(self, surface):
+        if self.lifetime > 0:
+            pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), max(1, int(self.radius)))
+
+class GameState:
+    def __init__(self):
+        self.mode = "MENU"
+        self.selected_difficulty = "Normal"
+        
+        # 생명력 시스템 (100% 기준)
+        self.max_life = 100.0 
+        self.current_life = self.max_life
+        self.base_drain_per_second = 2.5
+        
+        # 보스 진행도
+        self.current_boss_index = 1
+        self.total_bosses = 13
+        self.boss_hp = 100.0
+        self.boss_max_hp = 100.0
+        
+        # 보스 크기 및 다방향 위치/속도 벡터
+        self.boss_width = 240
+        self.boss_height = 160
+        self.boss_x = float(WIDTH // 2 - self.boss_width // 2)
+        self.boss_y = float(HEIGHT // 2 - self.boss_height // 2)
+        self.boss_vx = 0.0
+        self.boss_vy = 0.0
+        self.boss_base_speed = 280.0 # 2D 기동을 위해 기본 속도 소폭 조정
+        
+        # 불규칙한 방향 전환을 위한 타이머
+        self.direction_change_timer = 0.0
+        
+        # 이펙트 관련
+        self.elapsed_seconds = 0.0
+        self.screen_shake_time = 0.0
+        self.particles = []
+
+    def start_game(self, difficulty):
+        self.selected_difficulty = difficulty
+        self.mode = "PLAYING"
+        self.current_life = self.max_life
+        self.current_boss_index = 1
+        self.elapsed_seconds = 0.0
+        self.particles = []
+        self.setup_boss()
+
+    def setup_boss(self):
+        diff_settings = DIFFICULTIES[self.selected_difficulty]
+        hp_multiplier = diff_settings["boss_hp_multiplier"]
+        
+        # HP 스케일링
+        if self.current_boss_index == 13:
+            self.boss_max_hp = 400.0 * hp_multiplier
+        else:
+            self.boss_max_hp = (40.0 + (self.current_boss_index * 25.0)) * hp_multiplier
+            
+        self.boss_hp = self.boss_max_hp
+        
+        # 보스를 화면 중앙 근처에 배치
+        self.boss_x = float(WIDTH // 2 - self.boss_width // 2)
+        self.boss_y = float(random.randint(180, HEIGHT - self.boss_height - 100))
+        
+        # 최초 이동 방향을 무작위 각도(라디안)로 설정
+        self.set_random_direction()
+        self.direction_change_timer = random.uniform(1.0, 2.0) # 1~2초 후 방향 전환
+
+    def set_random_direction(self):
+        """보스의 속도 벡터를 무작위 각도로 설정"""
+        diff_settings = DIFFICULTIES[self.selected_difficulty]
+        speed_mult = diff_settings["boss_speed_multiplier"]
+        # 보스 번호가 올라갈수록 속도가 빨라짐
+        current_speed = self.boss_base_speed * speed_mult * (1.0 + (self.current_boss_index * 0.08))
+        
+        angle = random.uniform(0, math.pi * 2)
+        # 특정 너무 수평이거나 수직인 각도는 제외하여 다채롭게 움직이도록 보정
+        while abs(math.sin(angle)) < 0.2 or abs(math.cos(angle)) < 0.2:
+            angle = random.uniform(0, math.pi * 2)
+            
+        self.boss_vx = math.cos(angle) * current_speed
+        self.boss_vy = math.sin(angle) * current_speed
+
+    def trigger_hit_effect(self, click_x, click_y, color):
+        self.screen_shake_time = 0.15
+        for _ in range(12):
+            self.particles.append(Particle(click_x, click_y, color))
+
+    def update(self, dt):
+        # 파티클 업데이트
+        for p in self.particles[:]:
+            p.update(dt)
+            if p.lifetime <= 0:
+                self.particles.remove(p)
+
+        if self.mode != "PLAYING":
+            return
+
+        self.elapsed_seconds += dt
+        diff_settings = DIFFICULTIES[self.selected_difficulty]
+
+        # 1. 생명력 감소 로직
+        time_acceleration = 1.0 + (self.elapsed_seconds * 0.03)
+        difficulty_mult = diff_settings["life_drain_multiplier"]
+        drain_this_frame = self.base_drain_per_second * difficulty_mult * time_acceleration * dt
+        
+        self.current_life -= drain_this_frame
+        if self.current_life <= 0:
+            self.current_life = 0
+            self.mode = "GAME_OVER"
+
+        if self.screen_shake_time > 0:
+            self.screen_shake_time -= dt
+
+        # 2. 불규칙한 방향 전환 타이머 작동 (난이도가 높거나 13번 보스일수록 더 자주 방향을 바꿈)
+        self.direction_change_timer -= dt
+        change_interval = 0.6 if self.current_boss_index == 13 else 1.2
+        if self.direction_change_timer <= 0:
+            self.set_random_direction()
+            self.direction_change_timer = random.uniform(change_interval, change_interval + 0.8)
+
+        # 3. 다방향(X, Y) 이동 반영
+        self.boss_x += self.boss_vx * dt
+        self.boss_y += self.boss_vy * dt
+
+        # 4. 사방 벽 충돌 판정 및 튕기기 (Bounce)
+        # 좌우 벽 충돌
+        if self.boss_x <= 20:
+            self.boss_x = 20
+            self.boss_vx = abs(self.boss_vx)  # 오른쪽으로 튕김
+        elif self.boss_x + self.boss_width >= WIDTH - 20:
+            self.boss_x = WIDTH - 20 - self.boss_width
+            self.boss_vx = -abs(self.boss_vx) # 왼쪽으로 튕김
+
+        # 상하 벽 충돌 (UI 바 및 하단 안내선 고려 범위)
+        if self.boss_y <= 160:
+            self.boss_y = 160
+            self.boss_vy = abs(self.boss_vy)  # 아래로 튕김
+        elif self.boss_y + self.boss_height >= HEIGHT - 110:
+            self.boss_y = HEIGHT - 110 - self.boss_height
+            self.boss_vy = -abs(self.boss_vy) # 위로 튕김
+
+    def defeat_boss(self):
+        self.current_life = min(self.max_life, self.current_life + 25.0) # 보너스 수급
+        if self.current_boss_index < self.total_bosses:
+            self.current_boss_index += 1
+            self.setup_boss()
+        else:
+            self.mode = "VICTORY"
+
+# 게임 상태 관리자 생성
+game = GameState()
+
+# 메인 루프 변수
+running = True
+last_time = pygame.time.get_ticks()
+
+while running:
+    current_time = pygame.time.get_ticks()
+    dt = (current_time - last_time) / 1000.0
+    last_time = current_time
+
+    # 이벤트 핸들러
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+            
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            mx, my = pygame.mouse.get_pos()
+
+            if game.mode == "MENU":
+                y_pos = 260
+                for diff in DIFFICULTIES.keys():
+                    rect = pygame.Rect(WIDTH//2 - 120, y_pos, 240, 45)
+                    if rect.collidepoint(mx, my):
+                        game.start_game(diff)
+                        break
+                    y_pos += 65
+
+            elif game.mode == "PLAYING":
+                boss_rect = pygame.Rect(int(game.boss_x), int(game.boss_y), game.boss_width, game.boss_height)
+                if boss_rect.collidepoint(mx, my):
+                    damage = 30 if game.current_boss_index != 13 else 18
+                    game.boss_hp -= damage
+                    
+                    color = GOLD if game.current_boss_index == 13 else WHITE
+                    game.trigger_hit_effect(mx, my, color)
+                    
+                    # 맞을 때마다 반사적으로 즉시 무작위 방향 꺾기 (회피 기동 패턴 추가)
+                    if random.random() < 0.6: 
+                        game.set_random_direction()
+                    
+                    if game.boss_hp <= 0:
+                        game.defeat_boss()
+
+            elif game.mode in ["GAME_OVER", "VICTORY"]:
+                btn_rect = pygame.Rect(WIDTH//2 - 100, HEIGHT//2 + 100, 200, 50)
+                if btn_rect.collidepoint(mx, my):
+                    game.mode = "MENU"
+
+    # --- 그리기 작업 ---
+    render_offset_x = random.randint(-6, 6) if game.mode == "PLAYING" and game.screen_shake_time > 0 else 0
+    render_offset_y = random.randint(-6, 6) if game.mode == "PLAYING" and game.screen_shake_time > 0 else 0
+
+    game_surface = pygame.Surface((WIDTH, HEIGHT))
+    game_surface.fill(BLACK)
+
+    if game.mode == "MENU":
+        title_text = FONT_LARGE.render("The 13th Path", True, GOLD)
+        game_surface.blit(title_text, (WIDTH//2 - title_text.get_width()//2, 90))
+        
+        subtitle_text = FONT_SMALL.render("Track down the chaotic entities. Absolute speed required.", True, LIGHT_GRAY)
+        game_surface.blit(subtitle_text, (WIDTH//2 - subtitle_text.get_width()//2, 160))
+
+        y_pos = 260
+        for diff in DIFFICULTIES.keys():
+            rect = pygame.Rect(WIDTH//2 - 120, y_pos, 240, 45)
+            pygame.draw.rect(game_surface, GRAY, rect, border_radius=6)
+            pygame.draw.rect(game_surface, LIGHT_GRAY, rect, width=1, border_radius=6)
+            text = FONT_MID.render(diff, True, WHITE)
+            game_surface.blit(text, (WIDTH//2 - text.get_width()//2, y_pos + 8))
+            y_pos += 65
+
